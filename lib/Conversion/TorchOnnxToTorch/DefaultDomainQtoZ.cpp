@@ -7,11 +7,17 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "torch-mlir/Conversion/TorchOnnxToTorch/Patterns.h"
 #include "torch-mlir/Conversion/TorchOnnxToTorch/Utils.h"
+#include "torch-mlir/Dialect/Torch/IR/TorchOps.h"
+#include "torch-mlir/Dialect/Torch/IR/TorchTypes.h"
 #include "torch-mlir/Dialect/Torch/Utils/Utils.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Casting.h"
 
 using namespace mlir;
 using namespace mlir::torch;
@@ -305,10 +311,6 @@ void mlir::torch::onnx_c::populateDefaultDomainQtoZ(
           auto vTy = cast<Torch::ValueTensorType>(v.getType());
           return llvm::all_of(vTy.getSizes(), [](int64_t d) { return d == 1; });
         };
-        if (!check(aScale) || !check(aZp) || !check(bScale) || !check(bZp) ||
-            !check(cScale) || !check(cScale))
-          return rewriter.notifyMatchFailure(
-              binder.op, "not supported for non per-tensor quantization");
 
         auto extract = [&rewriter, &binder](Value v) {
           auto vTy = cast<Torch::ValueTensorType>(v.getType());
@@ -320,23 +322,46 @@ void mlir::torch::onnx_c::populateDefaultDomainQtoZ(
                                                     v);
         };
 
-        aZp = extract(aZp);
-        bZp = extract(bZp);
-        cZp = extract(cZp);
-        aScale = extract(aScale);
-        bScale = extract(bScale);
-        cScale = extract(cScale);
-
-        auto make = [&rewriter, &binder](Value v, Value scale,
-                                         Value zp) -> Value {
+        auto make_per_tensor = [&rewriter, &binder](Value v, Value scale,
+                                                    Value zp) -> Value {
           auto ty = cast<Torch::ValueTensorType>(v.getType());
           auto newTy = getQTorchTypeFromTorchIntType(ty);
           return rewriter.create<Torch::Aten_MakePerTensorQuantizedTensorOp>(
               binder.getLoc(), newTy, v, scale, zp);
         };
 
-        a = make(a, aScale, aZp);
-        b = make(b, bScale, bZp);
+        auto make_per_channel = [&rewriter, &binder](Value v, Value scale,
+                                                     Value zp,
+                                                     int64_t axis) -> Value {
+          Value axisValue = rewriter.create<Torch::ConstantIntOp>(
+              binder.getLoc(), rewriter.getType<Torch::IntType>(),
+              rewriter.getIntegerAttr(rewriter.getIntegerType(64), axis));
+          auto ty = cast<Torch::ValueTensorType>(v.getType());
+          auto newTy = getQTorchTypeFromTorchIntType(ty);
+          return rewriter.create<Torch::Aten_MakePerChannelQuantizedTensorOp>(
+              binder.getLoc(), newTy, v, scale, zp, axisValue);
+        };
+
+        // If we quantize per tensor we need to extract the scalar value.
+        if (check(aScale) && check(aZp)) {
+          aZp = extract(aZp);
+          aScale = extract(aScale);
+          a = make_per_tensor(a, aScale, aZp);
+        } else {
+          a = make_per_channel(a, aScale, aZp, 1);
+        }
+
+        if (check(bScale) && check(bZp)) {
+          bZp = extract(bZp);
+          bScale = extract(bScale);
+          b = make_per_tensor(b, bScale, bZp);
+        } else {
+          b = make_per_channel(b, bScale, bZp, 0);
+        }
+        if (check(cScale) && check(cZp)) {
+          cZp = extract(cZp);
+          cScale = extract(cScale);
+        }
 
         auto cTy = rewriter.getType<Torch::ValueTensorType>(
             resultType.getOptionalSizes(),
@@ -367,14 +392,45 @@ void mlir::torch::onnx_c::populateDefaultDomainQtoZ(
                                            binder.op->getRegions().size())
                 .getResult(0);
 
-        Value outScale = rewriter.create<Torch::AtenMulFloatOp>(
-            binder.getLoc(), rewriter.getType<Torch::FloatType>(), aScale,
-            bScale);
-        Value outZp = rewriter.create<Torch::ConstantIntOp>(
-            binder.getLoc(), rewriter.getType<Torch::IntType>(),
-            rewriter.getIntegerAttr(rewriter.getIntegerType(64), 0));
-        c = rewriter.create<Torch::Aten_MakePerTensorQuantizedTensorOp>(
-            binder.getLoc(), cTy, c, outScale, outZp);
+        bool aScaleIsTensor = isa<Torch::ValueTensorType>(aScale.getType());
+        bool bScaleIsTensor = isa<Torch::ValueTensorType>(bScale.getType());
+
+        if (!aScaleIsTensor && !bScaleIsTensor) {
+
+          Value outScale = rewriter.create<Torch::AtenMulFloatOp>(
+              binder.getLoc(), rewriter.getType<Torch::FloatType>(), aScale,
+              bScale);
+          Value outZp = rewriter.create<Torch::ConstantIntOp>(
+              binder.getLoc(), rewriter.getType<Torch::IntType>(),
+              rewriter.getIntegerAttr(rewriter.getIntegerType(64), 0));
+          c = rewriter.create<Torch::Aten_MakePerTensorQuantizedTensorOp>(
+              binder.getLoc(), cTy, c, outScale, outZp);
+        }
+        if (aScaleIsTensor || bScaleIsTensor) {
+          Value outScale;
+          if (aScaleIsTensor) {
+            outScale = rewriter.create<Torch::AtenMulScalarOp>(
+                binder.getLoc(), aScale.getType(), aScale, bScale);
+          } else {
+            outScale = rewriter.create<Torch::AtenMulScalarOp>(
+                binder.getLoc(), bScale.getType(), bScale, aScale);
+          }
+          auto zeroPointType = rewriter.getType<Torch::ValueTensorType>(
+              cast<Torch::ValueTensorType>(outScale.getType()).getSizes(),
+              cast<Torch::ValueTensorType>(c.getType()).getDtype());
+          Value outZp = rewriter.create<Torch::ValueTensorLiteralOp>(
+              binder.getLoc(),
+              DenseElementsAttr::get(
+                  RankedTensorType::get(zeroPointType.getSizes(),
+                                        rewriter.getIntegerType(64, true)),
+                  (int64_t)0));
+
+          Value axisValue = rewriter.create<Torch::ConstantIntOp>(
+              binder.getLoc(), rewriter.getType<Torch::IntType>(),
+              rewriter.getIntegerAttr(rewriter.getIntegerType(64), 1));
+          c = rewriter.create<Torch::Aten_MakePerChannelQuantizedTensorOp>(
+              binder.getLoc(), cTy, c, outScale, outZp, axisValue);
+        }
         cTy = rewriter.getType<Torch::ValueTensorType>(
             resultType.getOptionalSizes(), rewriter.getF32Type());
 

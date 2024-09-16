@@ -67,28 +67,28 @@ func.func @test_quantizelinear_f8(%arg0: !torch.vtensor<[6],f32>, %arg1: !torch.
 // CHECK-LABEL: @test_qlinearconv_nobias
 func.func @test_qlinearconv_nobias(%arg0: !torch.vtensor<[1,1,7,7],ui8>, %arg1: !torch.vtensor<[],f32>, %arg2: !torch.vtensor<[],ui8>, %arg3: !torch.vtensor<[1,1,1,1],ui8>, %arg4: !torch.vtensor<[1],f32>, %arg5: !torch.vtensor<[1],ui8>, %arg6: !torch.vtensor<[],f32>, %arg7: !torch.vtensor<[],ui8>) -> !torch.vtensor<[1,1,7,7],ui8> attributes {torch.onnx_meta.ir_version = 5 : si64, torch.onnx_meta.opset_version = 10 : si64, torch.onnx_meta.producer_name = "backend-test", torch.onnx_meta.producer_version = ""} {
   %0 = torch.operator "onnx.QLinearConv"(%arg0, %arg1, %arg2, %arg3, %arg4, %arg5, %arg6, %arg7) : (!torch.vtensor<[1,1,7,7],ui8>, !torch.vtensor<[],f32>, !torch.vtensor<[],ui8>, !torch.vtensor<[1,1,1,1],ui8>, !torch.vtensor<[1],f32>, !torch.vtensor<[1],ui8>, !torch.vtensor<[],f32>, !torch.vtensor<[],ui8>) -> !torch.vtensor<[1,1,7,7],ui8>
-  // CHECK: %[[aZp:.+]] = torch.aten.item %arg2 : !torch.vtensor<[],ui8> -> !torch.int
-  // CHECK: %[[bZp:.+]] = torch.aten.item %arg5 : !torch.vtensor<[1],ui8> -> !torch.int
-  // CHECK: %[[cZp:.+]] = torch.aten.item %arg7 : !torch.vtensor<[],ui8> -> !torch.int
-  // CHECK: %[[aScale:.+]] = torch.aten.item %arg1 : !torch.vtensor<[],f32> -> !torch.float
-  // CHECK: %[[bScale:.+]] = torch.aten.item %arg4 : !torch.vtensor<[1],f32> -> !torch.float
-  // CHECK: %[[cScale:.+]] = torch.aten.item %arg6 : !torch.vtensor<[],f32> -> !torch.float
-  // CHECK: %[[A:.+]] = torch.aten._make_per_tensor_quantized_tensor %arg0, %[[aScale]], %[[aZp]] : !torch.vtensor<[1,1,7,7],ui8>, !torch.float, !torch.int -> !torch.vtensor<[1,1,7,7],!torch.quint8>
-  // CHECK: %[[B:.+]] = torch.aten._make_per_tensor_quantized_tensor %arg3, %[[bScale]], %[[bZp]] : !torch.vtensor<[1,1,1,1],ui8>, !torch.float, !torch.int -> !torch.vtensor<[1,1,1,1],!torch.quint8>
-  // CHECK: %[[INT0_0:.+]] = torch.constant.int 0
-  // CHECK: %[[INT0_1:.+]] = torch.constant.int 0
-  // CHECK: %[[PAD:.+]] = torch.prim.ListConstruct %[[INT0_0]], %[[INT0_1]]
-  // CHECK: %[[INT1_0:.+]] = torch.constant.int 1
-  // CHECK: %[[INT1_1:.+]] = torch.constant.int 1
-  // CHECK: %[[INT1_2:.+]] = torch.constant.int 1
-  // CHECK: %[[INT1_3:.+]] = torch.constant.int 1
-  // CHECK: %[[INT0_2:.+]] = torch.constant.int 0
-  // CHECK: %[[KERNEL:.+]] = torch.prim.ListConstruct %[[INT1_0]], %[[INT1_1]]
-  // CHECK: %[[DILATION:.+]] = torch.prim.ListConstruct %[[INT1_2]], %[[INT1_3]]
-  // CHECK: %[[STRIDE:.+]] = torch.prim.ListConstruct %[[INT0_2]], %[[INT0_2]]
-  // CHECK: %[[FALSE:.+]] = torch.constant.bool false
-  // CHECK: %[[NONE:.+]] = torch.constant.none
-  // CHECK: %[[INT1_5:.+]] = torch.constant.int 1
+  // CHECK-DAG: %[[aZp:.+]] = torch.aten.item %arg2 : !torch.vtensor<[],ui8> -> !torch.int
+  // CHECK-DAG: %[[bZp:.+]] = torch.aten.item %arg5 : !torch.vtensor<[1],ui8> -> !torch.int
+  // CHECK-DAG: %[[cZp:.+]] = torch.aten.item %arg7 : !torch.vtensor<[],ui8> -> !torch.int
+  // CHECK-DAG: %[[aScale:.+]] = torch.aten.item %arg1 : !torch.vtensor<[],f32> -> !torch.float
+  // CHECK-DAG: %[[bScale:.+]] = torch.aten.item %arg4 : !torch.vtensor<[1],f32> -> !torch.float
+  // CHECK-DAG: %[[cScale:.+]] = torch.aten.item %arg6 : !torch.vtensor<[],f32> -> !torch.float
+  // CHECK-DAG: %[[A:.+]] = torch.aten._make_per_tensor_quantized_tensor %arg0, %[[aScale]], %[[aZp]] : !torch.vtensor<[1,1,7,7],ui8>, !torch.float, !torch.int -> !torch.vtensor<[1,1,7,7],!torch.quint8>
+  // CHECK-DAG: %[[B:.+]] = torch.aten._make_per_tensor_quantized_tensor %arg3, %[[bScale]], %[[bZp]] : !torch.vtensor<[1,1,1,1],ui8>, !torch.float, !torch.int -> !torch.vtensor<[1,1,1,1],!torch.quint8>
+  // CHECK-DAG: %[[INT0_0:.+]] = torch.constant.int 0
+  // CHECK-DAG: %[[INT0_1:.+]] = torch.constant.int 0
+  // CHECK-DAG: %[[PAD:.+]] = torch.prim.ListConstruct %[[INT0_0]], %[[INT0_1]]
+  // CHECK-DAG: %[[INT1_0:.+]] = torch.constant.int 1
+  // CHECK-DAG: %[[INT1_1:.+]] = torch.constant.int 1
+  // CHECK-DAG: %[[INT1_2:.+]] = torch.constant.int 1
+  // CHECK-DAG: %[[INT1_3:.+]] = torch.constant.int 1
+  // CHECK-DAG: %[[INT0_2:.+]] = torch.constant.int 0
+  // CHECK-DAG: %[[KERNEL:.+]] = torch.prim.ListConstruct %[[INT1_0]], %[[INT1_1]]
+  // CHECK-DAG: %[[DILATION:.+]] = torch.prim.ListConstruct %[[INT1_2]], %[[INT1_3]]
+  // CHECK-DAG: %[[STRIDE:.+]] = torch.prim.ListConstruct %[[INT0_2]], %[[INT0_2]]
+  // CHECK-DAG: %[[FALSE:.+]] = torch.constant.bool false
+  // CHECK-DAG: %[[NONE:.+]] = torch.constant.none
+  // CHECK-DAG: %[[INT1_5:.+]] = torch.constant.int 1
   // CHECK: %[[CONV:.+]] = torch.aten.convolution %[[A]], %[[B]], %[[NONE]], %[[DILATION]], %[[PAD]], %[[KERNEL]], %[[FALSE]], %[[STRIDE]], %[[INT1_5]] : !torch.vtensor<[1,1,7,7],!torch.quint8>, !torch.vtensor<[1,1,1,1],!torch.quint8>, !torch.none, !torch.list<int>, !torch.list<int>, !torch.list<int>, !torch.bool, !torch.list<int>, !torch.int -> !torch.vtensor<[1,1,7,7],!torch.qint32>
   // CHECK: %[[convScale:.+]] = torch.aten.mul.float %[[aScale]], %[[bScale]] : !torch.float, !torch.float -> !torch.float
   // CHECK: %[[INT0_6:.+]] = torch.constant.int 0
@@ -106,27 +106,27 @@ func.func @test_qlinearconv_nobias(%arg0: !torch.vtensor<[1,1,7,7],ui8>, %arg1: 
 // CHECK-LABEL: @test_qlinearconv_bias
 func.func @test_qlinearconv_bias(%arg0: !torch.vtensor<[1,1,7,7],ui8>, %arg1: !torch.vtensor<[],f32>, %arg2: !torch.vtensor<[],ui8>, %arg3: !torch.vtensor<[1,1,1,1],ui8>, %arg4: !torch.vtensor<[1],f32>, %arg5: !torch.vtensor<[1],ui8>, %arg6: !torch.vtensor<[],f32>, %arg7: !torch.vtensor<[],ui8>, %arg8 : !torch.vtensor<[7],si32>) -> !torch.vtensor<[1,1,7,7],ui8> attributes {torch.onnx_meta.ir_version = 5 : si64, torch.onnx_meta.opset_version = 10 : si64, torch.onnx_meta.producer_name = "backend-test", torch.onnx_meta.producer_version = ""} {
   %0 = torch.operator "onnx.QLinearConv"(%arg0, %arg1, %arg2, %arg3, %arg4, %arg5, %arg6, %arg7, %arg8) : (!torch.vtensor<[1,1,7,7],ui8>, !torch.vtensor<[],f32>, !torch.vtensor<[],ui8>, !torch.vtensor<[1,1,1,1],ui8>, !torch.vtensor<[1],f32>, !torch.vtensor<[1],ui8>, !torch.vtensor<[],f32>, !torch.vtensor<[],ui8>, !torch.vtensor<[7],si32>) -> !torch.vtensor<[1,1,7,7],ui8>
-  // CHECK: %[[aZp:.+]] = torch.aten.item %arg2 : !torch.vtensor<[],ui8> -> !torch.int
-  // CHECK: %[[bZp:.+]] = torch.aten.item %arg5 : !torch.vtensor<[1],ui8> -> !torch.int
-  // CHECK: %[[cZp:.+]] = torch.aten.item %arg7 : !torch.vtensor<[],ui8> -> !torch.int
-  // CHECK: %[[aScale:.+]] = torch.aten.item %arg1 : !torch.vtensor<[],f32> -> !torch.float
-  // CHECK: %[[bScale:.+]] = torch.aten.item %arg4 : !torch.vtensor<[1],f32> -> !torch.float
-  // CHECK: %[[cScale:.+]] = torch.aten.item %arg6 : !torch.vtensor<[],f32> -> !torch.float
-  // CHECK: %[[A:.+]] = torch.aten._make_per_tensor_quantized_tensor %arg0, %[[aScale]], %[[aZp]] : !torch.vtensor<[1,1,7,7],ui8>, !torch.float, !torch.int -> !torch.vtensor<[1,1,7,7],!torch.quint8>
-  // CHECK: %[[B:.+]] = torch.aten._make_per_tensor_quantized_tensor %arg3, %[[bScale]], %[[bZp]] : !torch.vtensor<[1,1,1,1],ui8>, !torch.float, !torch.int -> !torch.vtensor<[1,1,1,1],!torch.quint8>
-  // CHECK: %[[INT0_0:.+]] = torch.constant.int 0
-  // CHECK: %[[INT0_1:.+]] = torch.constant.int 0
-  // CHECK: %[[PAD:.+]] = torch.prim.ListConstruct %[[INT0_0]], %[[INT0_1]]
-  // CHECK: %[[INT1_0:.+]] = torch.constant.int 1
-  // CHECK: %[[INT1_1:.+]] = torch.constant.int 1
-  // CHECK: %[[INT1_2:.+]] = torch.constant.int 1
-  // CHECK: %[[INT1_3:.+]] = torch.constant.int 1
-  // CHECK: %[[INT0_2:.+]] = torch.constant.int 0
-  // CHECK: %[[KERNEL:.+]] = torch.prim.ListConstruct %[[INT1_0]], %[[INT1_1]]
-  // CHECK: %[[DILATION:.+]] = torch.prim.ListConstruct %[[INT1_2]], %[[INT1_3]]
-  // CHECK: %[[STRIDE:.+]] = torch.prim.ListConstruct %[[INT0_2]], %[[INT0_2]]
-  // CHECK: %[[FALSE:.+]] = torch.constant.bool false
-  // CHECK: %[[INT1_5:.+]] = torch.constant.int 1
+  // CHECK-DAG: %[[aZp:.+]] = torch.aten.item %arg2 : !torch.vtensor<[],ui8> -> !torch.int
+  // CHECK-DAG: %[[bZp:.+]] = torch.aten.item %arg5 : !torch.vtensor<[1],ui8> -> !torch.int
+  // CHECK-DAG: %[[cZp:.+]] = torch.aten.item %arg7 : !torch.vtensor<[],ui8> -> !torch.int
+  // CHECK-DAG: %[[aScale:.+]] = torch.aten.item %arg1 : !torch.vtensor<[],f32> -> !torch.float
+  // CHECK-DAG: %[[bScale:.+]] = torch.aten.item %arg4 : !torch.vtensor<[1],f32> -> !torch.float
+  // CHECK-DAG: %[[cScale:.+]] = torch.aten.item %arg6 : !torch.vtensor<[],f32> -> !torch.float
+  // CHECK-DAG: %[[A:.+]] = torch.aten._make_per_tensor_quantized_tensor %arg0, %[[aScale]], %[[aZp]] : !torch.vtensor<[1,1,7,7],ui8>, !torch.float, !torch.int -> !torch.vtensor<[1,1,7,7],!torch.quint8>
+  // CHECK-DAG: %[[B:.+]] = torch.aten._make_per_tensor_quantized_tensor %arg3, %[[bScale]], %[[bZp]] : !torch.vtensor<[1,1,1,1],ui8>, !torch.float, !torch.int -> !torch.vtensor<[1,1,1,1],!torch.quint8>
+  // CHECK-DAG: %[[INT0_0:.+]] = torch.constant.int 0
+  // CHECK-DAG: %[[INT0_1:.+]] = torch.constant.int 0
+  // CHECK-DAG: %[[PAD:.+]] = torch.prim.ListConstruct %[[INT0_0]], %[[INT0_1]]
+  // CHECK-DAG: %[[INT1_0:.+]] = torch.constant.int 1
+  // CHECK-DAG: %[[INT1_1:.+]] = torch.constant.int 1
+  // CHECK-DAG: %[[INT1_2:.+]] = torch.constant.int 1
+  // CHECK-DAG: %[[INT1_3:.+]] = torch.constant.int 1
+  // CHECK-DAG: %[[INT0_2:.+]] = torch.constant.int 0
+  // CHECK-DAG: %[[KERNEL:.+]] = torch.prim.ListConstruct %[[INT1_0]], %[[INT1_1]]
+  // CHECK-DAG: %[[DILATION:.+]] = torch.prim.ListConstruct %[[INT1_2]], %[[INT1_3]]
+  // CHECK-DAG: %[[STRIDE:.+]] = torch.prim.ListConstruct %[[INT0_2]], %[[INT0_2]]
+  // CHECK-DAG: %[[FALSE:.+]] = torch.constant.bool false
+  // CHECK-DAG: %[[INT1_5:.+]] = torch.constant.int 1
   // CHECK: %[[CONV:.+]] = torch.aten.convolution %[[A]], %[[B]], %arg8, %[[DILATION]], %[[PAD]], %[[KERNEL]], %[[FALSE]], %[[STRIDE]], %[[INT1_5]] : !torch.vtensor<[1,1,7,7],!torch.quint8>, !torch.vtensor<[1,1,1,1],!torch.quint8>, !torch.vtensor<[7],si32>, !torch.list<int>, !torch.list<int>, !torch.list<int>, !torch.bool, !torch.list<int>, !torch.int -> !torch.vtensor<[1,1,7,7],!torch.qint32>
   // CHECK: %[[convScale:.+]] = torch.aten.mul.float %[[aScale]], %[[bScale]] : !torch.float, !torch.float -> !torch.float
   // CHECK: %[[INT0_6:.+]] = torch.constant.int 0
@@ -169,6 +169,44 @@ func.func @test_qlinearmatmul_2D(%arg0: !torch.vtensor<[2,4],ui8>, %arg1: !torch
   // CHECK: %[[OUT:.+]] = torch.aten.int_repr %[[QO]] : !torch.vtensor<[2,3],!torch.quint8> -> !torch.vtensor<[2,3],ui8>
   // CHECK: return %[[OUT]]
   return %0 : !torch.vtensor<[2,3],ui8>
+}
+
+// -----
+
+func.func @test_qlinearconv_nobias_channel(%arg0: !torch.vtensor<[1,1,7,7],ui8>, %arg1: !torch.vtensor<[],f32>, %arg2: !torch.vtensor<[],ui8>, %arg3: !torch.vtensor<[4,1,1,1],ui8>, %arg4: !torch.vtensor<[4],f32>, %arg5: !torch.vtensor<[4],ui8>, %arg6: !torch.vtensor<[],f32>, %arg7: !torch.vtensor<[],ui8>) -> !torch.vtensor<[1,4,7,7],ui8> attributes {torch.onnx_meta.ir_version = 5 : si64, torch.onnx_meta.opset_version = 10 : si64, torch.onnx_meta.producer_name = "backend-test", torch.onnx_meta.producer_version = ""} {
+  %0 = torch.operator "onnx.QLinearConv"(%arg0, %arg1, %arg2, %arg3, %arg4, %arg5, %arg6, %arg7) : (!torch.vtensor<[1,1,7,7],ui8>, !torch.vtensor<[],f32>, !torch.vtensor<[],ui8>, !torch.vtensor<[4,1,1,1],ui8>, !torch.vtensor<[4],f32>, !torch.vtensor<[4],ui8>, !torch.vtensor<[],f32>, !torch.vtensor<[],ui8>) -> !torch.vtensor<[1,4,7,7],ui8>
+// CHECK-DAG:    %[[VAL_8:.*]] = torch.aten.item %arg2 : !torch.vtensor<[],ui8> -> !torch.int
+// CHECK-DAG:    %[[VAL_9:.*]] = torch.aten.item %arg1 : !torch.vtensor<[],f32> -> !torch.float
+// CHECK-DAG:    %[[VAL_10:.*]] = torch.aten._make_per_tensor_quantized_tensor %arg0, %[[VAL_9]], %[[VAL_8]] : !torch.vtensor<[1,1,7,7],ui8>, !torch.float, !torch.int -> !torch.vtensor<[1,1,7,7],!torch.quint8>
+// CHECK-DAG:    %[[VAL_11:.*]] = torch.constant.int 0
+// CHECK-DAG:    %[[VAL_12:.*]] = torch.aten._make_per_channel_quantized_tensor %arg3, %arg4, %arg5, %[[VAL_11]] : !torch.vtensor<[4,1,1,1],ui8>, !torch.vtensor<[4],f32>, !torch.vtensor<[4],ui8>, !torch.int -> !torch.vtensor<[4,1,1,1],!torch.quint8>
+// CHECK-DAG:    %[[VAL_13:.*]] = torch.aten.item %arg7 : !torch.vtensor<[],ui8> -> !torch.int
+// CHECK-DAG:    %[[VAL_14:.*]] = torch.aten.item %arg6 : !torch.vtensor<[],f32> -> !torch.float
+// CHECK-DAG:    %[[VAL_15:.*]] = torch.constant.int 0
+// CHECK-DAG:    %[[VAL_16:.*]] = torch.constant.int 0
+// CHECK-DAG:    %[[VAL_17:.*]] = torch.prim.ListConstruct %[[VAL_15]], %[[VAL_16]] : (!torch.int, !torch.int) -> !torch.list<int>
+// CHECK-DAG:    %[[VAL_18:.*]] = torch.constant.int 1
+// CHECK-DAG:    %[[VAL_19:.*]] = torch.constant.int 1
+// CHECK-DAG:    %[[VAL_20:.*]] = torch.constant.int 1
+// CHECK-DAG:    %[[VAL_21:.*]] = torch.constant.int 1
+// CHECK-DAG:    %[[VAL_22:.*]] = torch.constant.int 0
+// CHECK-DAG:    %[[VAL_23:.*]] = torch.prim.ListConstruct %[[VAL_18]], %[[VAL_19]] : (!torch.int, !torch.int) -> !torch.list<int>
+// CHECK-DAG:    %[[VAL_24:.*]] = torch.prim.ListConstruct %[[VAL_20]], %[[VAL_21]] : (!torch.int, !torch.int) -> !torch.list<int>
+// CHECK-DAG:    %[[VAL_25:.*]] = torch.prim.ListConstruct %[[VAL_22]], %[[VAL_22]] : (!torch.int, !torch.int) -> !torch.list<int>
+// CHECK-DAG:    %[[VAL_26:.*]] = torch.constant.bool false
+// CHECK-DAG:    %[[VAL_27:.*]] = torch.constant.none
+// CHECK-DAG:    %[[VAL_28:.*]] = torch.constant.int 1
+// CHECK:    %[[VAL_29:.*]] = torch.aten.convolution %[[VAL_10]], %[[VAL_12]], %[[VAL_27]], %[[VAL_24]], %[[VAL_17]], %[[VAL_23]], %[[VAL_26]], %[[VAL_25]], %[[VAL_28]] : !torch.vtensor<[1,1,7,7],!torch.quint8>, !torch.vtensor<[4,1,1,1],!torch.quint8>, !torch.none, !torch.list<int>, !torch.list<int>, !torch.list<int>, !torch.bool, !torch.list<int>, !torch.int -> !torch.vtensor<[1,4,7,7],!torch.qint32>
+// CHECK:    %[[VAL_30:.*]] = torch.aten.mul.Scalar %arg4, %[[VAL_9]] : !torch.vtensor<[4],f32>, !torch.float -> !torch.vtensor<[4],f32>
+// CHECK:    %[[VAL_31:.*]] = torch.vtensor.literal(dense<0> : tensor<4xsi64>) : !torch.vtensor<[4],si64>
+// CHECK:    %[[VAL_32:.*]] = torch.constant.int 1
+// CHECK:    %[[VAL_33:.*]] = torch.aten._make_per_channel_quantized_tensor %[[VAL_29]], %[[VAL_30]], %[[VAL_31]], %[[VAL_32]] : !torch.vtensor<[1,4,7,7],!torch.qint32>, !torch.vtensor<[4],f32>, !torch.vtensor<[4],si64>, !torch.int -> !torch.vtensor<[1,4,7,7],!torch.qint32>
+// CHECK:    %[[VAL_34:.*]] = torch.aten.dequantize.self %[[VAL_33]] : !torch.vtensor<[1,4,7,7],!torch.qint32> -> !torch.vtensor<[1,4,7,7],f32>
+// CHECK:    %[[VAL_35:.*]] = torch.constant.int 13
+// CHECK:    %[[VAL_36:.*]] = torch.aten.quantize_per_tensor %[[VAL_34]], %[[VAL_14]], %[[VAL_13]], %[[VAL_35]] : !torch.vtensor<[1,4,7,7],f32>, !torch.float, !torch.int, !torch.int -> !torch.vtensor<[1,4,7,7],!torch.quint8>
+// CHECK:    %[[VAL_37:.*]] = torch.aten.int_repr %[[VAL_36]] : !torch.vtensor<[1,4,7,7],!torch.quint8> -> !torch.vtensor<[1,4,7,7],ui8>
+// CHECK:    return %[[VAL_37]] : !torch.vtensor<[1,4,7,7],ui8>
+  return %0 : !torch.vtensor<[1,4,7,7],ui8>
 }
 
 // -----
