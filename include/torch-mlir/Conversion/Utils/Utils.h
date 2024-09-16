@@ -77,7 +77,7 @@ SmallVector<Value> getAsConstantIndexValues(OpBuilder &b, Location loc,
 // TODO: remove this when list gets full support.
 SmallVector<Value> getTypeConvertedValues(OpBuilder &b, Location loc,
                                           const TypeConverter *converter,
-                                          SmallVectorImpl<Value> &vs);
+                                          const SmallVectorImpl<Value> &vs);
 
 mlir::RankedTensorType GetTypeFromTensorShape(llvm::ArrayRef<int64_t> shape,
                                               mlir::Type elementType,

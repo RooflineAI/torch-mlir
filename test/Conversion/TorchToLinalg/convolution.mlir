@@ -1,4 +1,4 @@
-// RUN: torch-mlir-opt <%s -convert-torch-to-linalg -canonicalize -split-input-file -mlir-print-local-scope -verify-diagnostics | FileCheck %s
+// RUN: torch-mlir-opt <%s -convert-torch-to-linalg -canonicalize -split-input-file -mlir-print-local-scope | FileCheck %s
 
 // CHECK-LABEL:   func @torch.aten.convolution$nobias(
 // CHECK:           %[[CONSTANT:.*]] = arith.constant 0.000000e+00 : f32
@@ -53,6 +53,41 @@ func.func @q_conv_test(%arg0: !torch.vtensor<[?,?,?,?],si8>, %arg1: !torch.vtens
   %10 = torch.aten._make_per_tensor_quantized_tensor %9, %float1.000000e-04, %int0 : !torch.vtensor<[?,?,?,?],si32>, !torch.float, !torch.int -> !torch.vtensor<[?,?,?,?],!torch.qint32>
   %11 = torch.aten.dequantize.tensor %10 : !torch.vtensor<[?,?,?,?],!torch.qint32> -> !torch.vtensor<[?,?,?,?],f32>
   return %11 : !torch.vtensor<[?,?,?,?],f32>
+}
+
+// -----
+
+/// Checking only the important stuff. We should get one linalg.generic for the zero point scalar of the input and one linalg.sub for the weight zeropoint tensor.
+// CHECK-LABEL:   func.func @test_qlinearconv_nobias(
+// CHECK:           %[[VAL_38:.*]] = linalg.fill
+// CHECK:           %[[VAL_39:.*]] = arith.trunci
+// CHECK:           %[[VAL_41:.*]] = linalg.generic
+// CHECK:           ^bb0
+// CHECK:             %[[VAL_44:.*]] = arith.subi
+// CHECK:           %[[VAL_46:.*]] = linalg.broadcast
+// CHECK:           %[[VAL_48:.*]] = linalg.fill
+// CHECK:           %[[VAL_49:.*]] = linalg.sub
+// CHECK:           %[[VAL_50:.*]] = linalg.conv_2d_nchw_fchw
+// CHECK:         }
+func.func @test_qlinearconv_nobias(%arg0: !torch.vtensor<[1,1,7,7],ui8>, %arg1: !torch.vtensor<[],f32>, %arg2: !torch.vtensor<[],ui8>, %arg3: !torch.vtensor<[4,1,1,1],ui8>, %arg4: !torch.vtensor<[4],f32>, %arg5: !torch.vtensor<[4],ui8>, %arg6: !torch.vtensor<[],f32>, %arg7: !torch.vtensor<[],ui8>) -> !torch.vtensor<[1,4,7,7],!torch.qint32> {
+  %int13 = torch.constant.int 13
+  %0 = torch.vtensor.literal(dense<0> : tensor<4xsi64>) : !torch.vtensor<[4],si64>
+  %none = torch.constant.none
+  %false = torch.constant.bool false
+  %int1 = torch.constant.int 1
+  %int0 = torch.constant.int 0
+  %1 = torch.aten.item %arg2 : !torch.vtensor<[],ui8> -> !torch.int
+  %2 = torch.aten.item %arg1 : !torch.vtensor<[],f32> -> !torch.float
+  %3 = torch.aten._make_per_tensor_quantized_tensor %arg0, %2, %1 : !torch.vtensor<[1,1,7,7],ui8>, !torch.float, !torch.int -> !torch.vtensor<[1,1,7,7],!torch.quint8>
+  %4 = torch.aten._make_per_channel_quantized_tensor %arg3, %arg4, %arg5, %int0 : !torch.vtensor<[4,1,1,1],ui8>, !torch.vtensor<[4],f32>, !torch.vtensor<[4],ui8>, !torch.int -> !torch.vtensor<[4,1,1,1],!torch.quint8>
+  %5 = torch.aten.item %arg7 : !torch.vtensor<[],ui8> -> !torch.int
+  %6 = torch.aten.item %arg6 : !torch.vtensor<[],f32> -> !torch.float
+  %7 = torch.prim.ListConstruct %int0, %int0 : (!torch.int, !torch.int) -> !torch.list<int>
+  %8 = torch.prim.ListConstruct %int1, %int1 : (!torch.int, !torch.int) -> !torch.list<int>
+  %9 = torch.prim.ListConstruct %int1, %int1 : (!torch.int, !torch.int) -> !torch.list<int>
+  %10 = torch.prim.ListConstruct %int0, %int0 : (!torch.int, !torch.int) -> !torch.list<int>
+  %11 = torch.aten.convolution %3, %4, %none, %9, %7, %8, %false, %10, %int1 : !torch.vtensor<[1,1,7,7],!torch.quint8>, !torch.vtensor<[4,1,1,1],!torch.quint8>, !torch.none, !torch.list<int>, !torch.list<int>, !torch.list<int>, !torch.bool, !torch.list<int>, !torch.int -> !torch.vtensor<[1,4,7,7],!torch.qint32>
+  return %11 : !torch.vtensor<[1,4,7,7],!torch.qint32>
 }
 
 // -----
