@@ -813,6 +813,110 @@ Value preprocessPadding(ConversionPatternRewriter &rewriter, Value pad,
   return pad;
 }
 
+void handleTranspose(ConversionPatternRewriter &rewriter, Location loc,
+                     Value &weight, SmallVectorImpl<Value> &outDims,
+                     Type weightDTy, size_t inRank, Value inputBatch,
+                     Value inputChannels, size_t numSpatialDims,
+                     SmallVectorImpl<Value> &inputSpatialDimensions,
+                     SmallVectorImpl<Value> &weightDims,
+                     ConvolutionAttributes &convolutionAttributes, Value pad,
+                     Value input, Type inputDTy, Value &paddedInput) {
+  Value c0 = rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexAttr(0));
+  Value c1 = rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexAttr(1));
+  Value c2 = rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexAttr(2));
+
+  // Transpose and flip weight
+  SmallVector<Value> weightInitDims = getTensorSizes(rewriter, loc, weight);
+  std::iter_swap(weightInitDims.begin(), weightInitDims.begin() + 1);
+  outDims[1] = weightInitDims[0];
+  Value weightInitTensor =
+      createZeroInitTensor(rewriter, loc, weightInitDims, weightDTy);
+  SmallVector<utils::IteratorType> iteratorTypes(inRank,
+                                                 utils::IteratorType::parallel);
+  SmallVector<AffineMap> indexingMaps{
+      AffineMap::getMultiDimIdentityMap(inRank, rewriter.getContext())};
+  weight =
+      rewriter
+          .create<linalg::GenericOp>(
+              loc, weightInitTensor.getType(), ValueRange{}, weightInitTensor,
+              indexingMaps, iteratorTypes,
+              [&](OpBuilder &b, Location loc, ValueRange args) {
+                SmallVector<Value> indices;
+                for (size_t i = 0; i < inRank; i++)
+                  indices.push_back(b.create<linalg::IndexOp>(loc, i));
+                std::iter_swap(indices.begin(), indices.begin() + 1);
+                // Flip only the spatial dimensions (from 2 to inRank)
+                for (size_t flipDim = 2; flipDim < inRank; flipDim++) {
+                  indices[flipDim] = b.create<arith::SubIOp>(
+                      loc,
+                      b.create<arith::SubIOp>(loc, weightInitDims[flipDim], c1),
+                      indices[flipDim]);
+                }
+                Value res = b.create<tensor::ExtractOp>(loc, weight, indices)
+                                .getResult();
+                b.create<linalg::YieldOp>(loc, res);
+              })
+          .getResult(0);
+
+  // Calculate padded input size, allocate tensor
+  SmallVector<Value> outerSizes{inputBatch, inputChannels};
+  SmallVector<Value> innerSizes{inputBatch, inputChannels};
+  SmallVector<Value> offsets{c0, c0};
+  for (size_t i = 0; i < numSpatialDims; i++) {
+    Value innerSize =
+        rewriter.create<arith::SubIOp>(loc, inputSpatialDimensions[i], c1);
+    innerSize = rewriter.create<arith::MulIOp>(
+        loc, innerSize,
+        castIntToIndex(rewriter, loc, convolutionAttributes.strideValues[i]));
+    innerSize = rewriter.create<arith::AddIOp>(loc, innerSize, c1);
+
+    Value offset = rewriter.create<arith::SubIOp>(loc, weightDims[i], c1);
+    offset = rewriter.create<arith::MulIOp>(
+        loc, offset,
+        castIntToIndex(rewriter, loc, convolutionAttributes.dilationValues[i]));
+    offset = rewriter.create<arith::SubIOp>(
+        loc, offset,
+        castIntToIndex(rewriter, loc, convolutionAttributes.padding[i]));
+
+    Value outerSize = rewriter.create<arith::MulIOp>(loc, offset, c2);
+    outerSize = rewriter.create<arith::AddIOp>(loc, outerSize, innerSize);
+    outerSize = rewriter.create<arith::AddIOp>(
+        loc, outerSize,
+        castIntToIndex(rewriter, loc, convolutionAttributes.outputPadding[i]));
+
+    outerSizes.push_back(outerSize);
+    offsets.push_back(offset);
+  }
+
+  // Allocate padded input tensor
+  Value initTensor = createInitTensor(rewriter, loc, outerSizes, inputDTy, pad);
+
+  // Insert input into allocated tensor
+  SmallVector<Value> strideIndexValues{c1, c1};
+  for (auto stride : convolutionAttributes.strideValues)
+    strideIndexValues.push_back(castIntToIndex(rewriter, loc, stride));
+  SmallVector<Value> insertSizes = getTensorSizes(rewriter, loc, input);
+
+  paddedInput = rewriter.create<tensor::InsertSliceOp>(
+      loc, torch_to_linalg::removeSizeInformation(rewriter, loc, input),
+      initTensor, offsets, insertSizes, strideIndexValues);
+
+  // Calculate output dims
+  for (size_t i = 0; i < numSpatialDims; i++)
+    outDims.push_back(torch_to_linalg::getOutputDimForConvTransposeOps(
+        rewriter, loc, inputSpatialDimensions[i],
+        convolutionAttributes.padding[i],
+        convolutionAttributes.dilationValues[i],
+        rewriter.createOrFold<arith::IndexCastOp>(
+            loc, rewriter.getIntegerType(64), weightDims[i]),
+        convolutionAttributes.strideValues[i],
+        convolutionAttributes.outputPadding[i]));
+
+  // Set stride to 1
+  convolutionAttributes.stride.clear();
+  convolutionAttributes.stride.append(numSpatialDims, 1);
+}
+
 class ConvertAtenConvolutionOp : public OpConversionPattern<AtenConvolutionOp> {
 public:
   using OpConversionPattern::OpConversionPattern;
@@ -947,100 +1051,10 @@ public:
     Value pad = inputZp;
     pad = preprocessPadding(rewriter, pad, op, inputDTy);
     if (transposed) {
-      Value c0 =
-          rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexAttr(0));
-      Value c1 =
-          rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexAttr(1));
-      Value c2 =
-          rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexAttr(2));
-
-      // Transpose and flip weight
-      SmallVector<Value> weightInitDims = getTensorSizes(rewriter, loc, weight);
-      std::iter_swap(weightInitDims.begin(), weightInitDims.begin() + 1);
-      outDims[1] = weightInitDims[0];
-      Value weightInitTensor =
-          createZeroInitTensor(rewriter, loc, weightInitDims, weightDTy);
-      SmallVector<utils::IteratorType> iteratorTypes(
-          inRank, utils::IteratorType::parallel);
-      SmallVector<AffineMap> indexingMaps{
-          AffineMap::getMultiDimIdentityMap(inRank, context)};
-      weight = rewriter
-                   .create<linalg::GenericOp>(
-                       loc, weightInitTensor.getType(), ValueRange{},
-                       weightInitTensor, indexingMaps, iteratorTypes,
-                       [&](OpBuilder &b, Location loc, ValueRange args) {
-                         SmallVector<Value> indices;
-                         for (size_t i = 0; i < inRank; i++)
-                           indices.push_back(b.create<linalg::IndexOp>(loc, i));
-                         std::iter_swap(indices.begin(), indices.begin() + 1);
-                         // Flip only the spatial dimensions (from 2 to inRank)
-                         for (size_t flipDim = 2; flipDim < inRank; flipDim++) {
-                           indices[flipDim] = b.create<arith::SubIOp>(
-                               loc,
-                               b.create<arith::SubIOp>(
-                                   loc, weightInitDims[flipDim], c1),
-                               indices[flipDim]);
-                         }
-                         Value res =
-                             b.create<tensor::ExtractOp>(loc, weight, indices)
-                                 .getResult();
-                         b.create<linalg::YieldOp>(loc, res);
-                       })
-                   .getResult(0);
-
-      // Calculate padded input size, allocate tensor
-      SmallVector<Value> outerSizes{inputBatch, inputChannels};
-      SmallVector<Value> innerSizes{inputBatch, inputChannels};
-      SmallVector<Value> offsets{c0, c0};
-      for (size_t i = 0; i < numSpatialDims; i++) {
-        Value innerSize = rewriter.create<arith::SubIOp>(loc, inputSpatialDimensions[i], c1);
-        innerSize = rewriter.create<arith::MulIOp>(
-            loc, innerSize, castIntToIndex(rewriter, loc, convolutionAttributes->strideValues[i]));
-        innerSize = rewriter.create<arith::AddIOp>(loc, innerSize, c1);
-
-        Value offset = rewriter.create<arith::SubIOp>(loc, weightDims[i], c1);
-        offset = rewriter.create<arith::MulIOp>(
-            loc, offset, castIntToIndex(rewriter, loc, convolutionAttributes->dilationValues[i]));
-        offset = rewriter.create<arith::SubIOp>(
-            loc, offset, castIntToIndex(rewriter, loc, convolutionAttributes->padding[i]));
-
-        Value outerSize = rewriter.create<arith::MulIOp>(loc, offset, c2);
-        outerSize = rewriter.create<arith::AddIOp>(loc, outerSize, innerSize);
-        outerSize = rewriter.create<arith::AddIOp>(
-            loc, outerSize,
-            castIntToIndex(rewriter, loc, convolutionAttributes->outputPadding[i]));
-
-        outerSizes.push_back(outerSize);
-        offsets.push_back(offset);
-      }
-
-      // Allocate padded input tensor
-      Value initTensor =
-          createInitTensor(rewriter, loc, outerSizes, inputDTy, pad);
-
-      // Insert input into allocated tensor
-      SmallVector<Value> strideIndexValues{c1, c1};
-      for (auto stride : convolutionAttributes->strideValues)
-        strideIndexValues.push_back(castIntToIndex(rewriter, loc, stride));
-      SmallVector<Value> insertSizes = getTensorSizes(rewriter, loc, input);
-
-      paddedInput = rewriter.create<tensor::InsertSliceOp>(
-          loc, torch_to_linalg::removeSizeInformation(rewriter, loc, input),
-          initTensor, offsets, insertSizes, strideIndexValues);
-
-      // Calculate output dims
-      for (size_t i = 0; i < numSpatialDims; i++)
-        outDims.push_back(torch_to_linalg::getOutputDimForConvTransposeOps(
-            rewriter, loc, inputSpatialDimensions[i],
-            convolutionAttributes->padding[i],
-            convolutionAttributes->dilationValues[i],
-            castIndexToInt(weightDims[i]),
-            convolutionAttributes->strideValues[i],
-            convolutionAttributes->outputPadding[i]));
-
-      // Set stride to 1
-      convolutionAttributes->stride.clear();
-      convolutionAttributes->stride.append(numSpatialDims, 1);
+      handleTranspose(
+          rewriter, loc, weight, outDims, weightDTy, inRank, inputBatch,
+          inputChannels, numSpatialDims, inputSpatialDimensions, weightDims,
+          convolutionAttributes.value(), pad, input, inputDTy, paddedInput);
     } else {
       // Pad input
       paddedInput = torch_to_linalg::getDynamicZeroPaddedTensor(
