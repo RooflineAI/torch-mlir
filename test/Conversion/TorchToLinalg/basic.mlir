@@ -354,3 +354,104 @@ func.func @torch.aten.transpose$basic(%arg0: !torch.vtensor<[4,3],f32>) -> !torc
   %0 = torch.aten.transpose.int %arg0, %int0, %int1 : !torch.vtensor<[4,3],f32>, !torch.int, !torch.int -> !torch.vtensor<[3,4],f32>
   return %0 : !torch.vtensor<[3,4],f32>
 }
+
+// -----
+
+// CHECK-LABEL:   func.func @test_reduce_any_dim$basic(
+// CHECK-SAME:                                         %[[VAL_0:.*]]: !torch.vtensor<[?,?,?,?],i1>) -> !torch.vtensor<[?,?,?],i1> {
+// CHECK:           %[[VAL_1:.*]] = torch_c.to_builtin_tensor %[[VAL_0]] : !torch.vtensor<[?,?,?,?],i1> -> tensor<?x?x?x?xi1>
+// CHECK:           %[[VAL_2:.*]] = torch.constant.int 0
+// CHECK:           %[[VAL_3:.*]] = torch.constant.bool false
+// CHECK:           %[[VAL_4:.*]] = arith.constant false
+// CHECK:           %[[VAL_5:.*]] = arith.constant 1 : index
+// CHECK:           %[[VAL_6:.*]] = arith.constant 0 : index
+// CHECK:           %[[VAL_7:.*]] = tensor.dim %[[VAL_1]], %[[VAL_6]] : tensor<?x?x?x?xi1>
+// CHECK:           %[[VAL_8:.*]] = arith.constant 1 : index
+// CHECK:           %[[VAL_9:.*]] = tensor.dim %[[VAL_1]], %[[VAL_8]] : tensor<?x?x?x?xi1>
+// CHECK:           %[[VAL_10:.*]] = arith.constant 2 : index
+// CHECK:           %[[VAL_11:.*]] = tensor.dim %[[VAL_1]], %[[VAL_10]] : tensor<?x?x?x?xi1>
+// CHECK:           %[[VAL_12:.*]] = arith.constant 3 : index
+// CHECK:           %[[VAL_13:.*]] = tensor.dim %[[VAL_1]], %[[VAL_12]] : tensor<?x?x?x?xi1>
+// CHECK:           %[[VAL_14:.*]] = tensor.empty(%[[VAL_9]], %[[VAL_11]], %[[VAL_13]]) : tensor<?x?x?xi1>
+// CHECK:           %[[VAL_15:.*]] = linalg.fill ins(%[[VAL_4]] : i1) outs(%[[VAL_14]] : tensor<?x?x?xi1>) -> tensor<?x?x?xi1>
+// CHECK:           %[[VAL_16:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_5:.*]], #[[$ATTR_6:.*]]], iterator_types = ["reduction", "parallel", "parallel", "parallel"]} ins(%[[VAL_1]] : tensor<?x?x?x?xi1>) outs(%[[VAL_15]] : tensor<?x?x?xi1>) {
+// CHECK:           ^bb0(%[[VAL_17:.*]]: i1, %[[VAL_18:.*]]: i1):
+// CHECK:             %[[VAL_19:.*]] = arith.ori %[[VAL_17]], %[[VAL_18]] : i1
+// CHECK:             linalg.yield %[[VAL_19]] : i1
+// CHECK:           } -> tensor<?x?x?xi1>
+// CHECK:           %[[VAL_20:.*]] = tensor.cast %[[VAL_16]] : tensor<?x?x?xi1> to tensor<?x?x?xi1>
+// CHECK:           %[[VAL_21:.*]] = torch_c.from_builtin_tensor %[[VAL_20]] : tensor<?x?x?xi1> -> !torch.vtensor<[?,?,?],i1>
+// CHECK:           return %[[VAL_21]] : !torch.vtensor<[?,?,?],i1>
+func.func @test_reduce_any_dim$basic(%arg0: !torch.vtensor<[?,?,?,?],i1>) -> !torch.vtensor<[?,?,?],i1> {
+  %int0 = torch.constant.int 0
+  %false = torch.constant.bool false
+  %0 = torch.aten.any.dim %arg0, %int0, %false : !torch.vtensor<[?,?,?,?],i1>, !torch.int, !torch.bool -> !torch.vtensor<[?,?,?],i1>
+  return %0 : !torch.vtensor<[?,?,?],i1>
+}
+
+// -----
+
+// CHECK-LABEL:   func.func @test_reduce_any_dim$basic(
+// CHECK-SAME:                                         %[[VAL_0:.*]]: !torch.vtensor<[?,?,?,?],i1>) -> !torch.vtensor<[?,?,?,?],i1> {
+// CHECK:           %[[VAL_1:.*]] = torch_c.to_builtin_tensor %[[VAL_0]] : !torch.vtensor<[?,?,?,?],i1> -> tensor<?x?x?x?xi1>
+// CHECK:           %[[VAL_2:.*]] = torch.constant.int 0
+// CHECK:           %[[VAL_3:.*]] = torch.constant.bool true
+// CHECK:           %[[VAL_4:.*]] = arith.constant false
+// CHECK:           %[[VAL_5:.*]] = arith.constant 1 : index
+// CHECK:           %[[VAL_6:.*]] = arith.constant 0 : index
+// CHECK:           %[[VAL_7:.*]] = tensor.dim %[[VAL_1]], %[[VAL_6]] : tensor<?x?x?x?xi1>
+// CHECK:           %[[VAL_8:.*]] = arith.constant 1 : index
+// CHECK:           %[[VAL_9:.*]] = tensor.dim %[[VAL_1]], %[[VAL_8]] : tensor<?x?x?x?xi1>
+// CHECK:           %[[VAL_10:.*]] = arith.constant 2 : index
+// CHECK:           %[[VAL_11:.*]] = tensor.dim %[[VAL_1]], %[[VAL_10]] : tensor<?x?x?x?xi1>
+// CHECK:           %[[VAL_12:.*]] = arith.constant 3 : index
+// CHECK:           %[[VAL_13:.*]] = tensor.dim %[[VAL_1]], %[[VAL_12]] : tensor<?x?x?x?xi1>
+// CHECK:           %[[VAL_14:.*]] = tensor.empty(%[[VAL_9]], %[[VAL_11]], %[[VAL_13]]) : tensor<1x?x?x?xi1>
+// CHECK:           %[[VAL_15:.*]] = linalg.fill ins(%[[VAL_4]] : i1) outs(%[[VAL_14]] : tensor<1x?x?x?xi1>) -> tensor<1x?x?x?xi1>
+// CHECK:           %[[VAL_16:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_7:.*]], #[[$ATTR_8:.*]]], iterator_types = ["reduction", "parallel", "parallel", "parallel"]} ins(%[[VAL_1]] : tensor<?x?x?x?xi1>) outs(%[[VAL_15]] : tensor<1x?x?x?xi1>) {
+// CHECK:           ^bb0(%[[VAL_17:.*]]: i1, %[[VAL_18:.*]]: i1):
+// CHECK:             %[[VAL_19:.*]] = arith.ori %[[VAL_17]], %[[VAL_18]] : i1
+// CHECK:             linalg.yield %[[VAL_19]] : i1
+// CHECK:           } -> tensor<1x?x?x?xi1>
+// CHECK:           %[[VAL_20:.*]] = tensor.cast %[[VAL_16]] : tensor<1x?x?x?xi1> to tensor<?x?x?x?xi1>
+// CHECK:           %[[VAL_21:.*]] = torch_c.from_builtin_tensor %[[VAL_20]] : tensor<?x?x?x?xi1> -> !torch.vtensor<[?,?,?,?],i1>
+// CHECK:           return %[[VAL_21]] : !torch.vtensor<[?,?,?,?],i1>
+func.func @test_reduce_any_dim$basic(%arg0: !torch.vtensor<[?,?,?,?],i1>) -> !torch.vtensor<[?,?,?,?],i1> {
+  %int0 = torch.constant.int 0
+  %false = torch.constant.bool true
+  %0 = torch.aten.any.dim %arg0, %int0, %false : !torch.vtensor<[?,?,?,?],i1>, !torch.int, !torch.bool -> !torch.vtensor<[?,?,?,?],i1>
+  return %0 : !torch.vtensor<[?,?,?,?],i1>
+}
+
+// -----
+// CHECK-LABEL:   func.func @test_reduce_any_dim$basic(
+// CHECK-SAME:                                         %[[VAL_0:.*]]: !torch.vtensor<[?,?,?,?],i1>) -> !torch.vtensor<[?,?,?,?],i1> {
+// CHECK:           %[[VAL_1:.*]] = torch_c.to_builtin_tensor %[[VAL_0]] : !torch.vtensor<[?,?,?,?],i1> -> tensor<?x?x?x?xi1>
+// CHECK:           %[[VAL_2:.*]] = torch.constant.int -1
+// CHECK:           %[[VAL_3:.*]] = torch.constant.bool true
+// CHECK:           %[[VAL_4:.*]] = arith.constant true
+// CHECK:           %[[VAL_5:.*]] = arith.constant 1 : index
+// CHECK:           %[[VAL_6:.*]] = arith.constant 0 : index
+// CHECK:           %[[VAL_7:.*]] = tensor.dim %[[VAL_1]], %[[VAL_6]] : tensor<?x?x?x?xi1>
+// CHECK:           %[[VAL_8:.*]] = arith.constant 1 : index
+// CHECK:           %[[VAL_9:.*]] = tensor.dim %[[VAL_1]], %[[VAL_8]] : tensor<?x?x?x?xi1>
+// CHECK:           %[[VAL_10:.*]] = arith.constant 2 : index
+// CHECK:           %[[VAL_11:.*]] = tensor.dim %[[VAL_1]], %[[VAL_10]] : tensor<?x?x?x?xi1>
+// CHECK:           %[[VAL_12:.*]] = arith.constant 3 : index
+// CHECK:           %[[VAL_13:.*]] = tensor.dim %[[VAL_1]], %[[VAL_12]] : tensor<?x?x?x?xi1>
+// CHECK:           %[[VAL_14:.*]] = tensor.empty(%[[VAL_7]], %[[VAL_9]], %[[VAL_11]]) : tensor<?x?x?x1xi1>
+// CHECK:           %[[VAL_15:.*]] = linalg.fill ins(%[[VAL_4]] : i1) outs(%[[VAL_14]] : tensor<?x?x?x1xi1>) -> tensor<?x?x?x1xi1>
+// CHECK:           %[[VAL_16:.*]] = linalg.generic {indexing_maps = [#[[$ATTR_9:.*]], #[[$ATTR_10:.*]]], iterator_types = ["parallel", "parallel", "parallel", "reduction"]} ins(%[[VAL_1]] : tensor<?x?x?x?xi1>) outs(%[[VAL_15]] : tensor<?x?x?x1xi1>) {
+// CHECK:           ^bb0(%[[VAL_17:.*]]: i1, %[[VAL_18:.*]]: i1):
+// CHECK:             %[[VAL_19:.*]] = arith.andi %[[VAL_17]], %[[VAL_18]] : i1
+// CHECK:             linalg.yield %[[VAL_19]] : i1
+// CHECK:           } -> tensor<?x?x?x1xi1>
+// CHECK:           %[[VAL_20:.*]] = tensor.cast %[[VAL_16]] : tensor<?x?x?x1xi1> to tensor<?x?x?x?xi1>
+// CHECK:           %[[VAL_21:.*]] = torch_c.from_builtin_tensor %[[VAL_20]] : tensor<?x?x?x?xi1> -> !torch.vtensor<[?,?,?,?],i1>
+// CHECK:           return %[[VAL_21]] : !torch.vtensor<[?,?,?,?],i1>
+func.func @test_reduce_any_dim$basic(%arg0: !torch.vtensor<[?,?,?,?],i1>) -> !torch.vtensor<[?,?,?,?],i1> {
+  %int0 = torch.constant.int -1
+  %false = torch.constant.bool true
+  %0 = torch.aten.all.dim %arg0, %int0, %false : !torch.vtensor<[?,?,?,?],i1>, !torch.int, !torch.bool -> !torch.vtensor<[?,?,?,?],i1>
+  return %0 : !torch.vtensor<[?,?,?,?],i1>
+}

@@ -337,7 +337,7 @@ static Value createInitElementForReduceOp(OpBuilder &b, Location loc,
     return b.create<arith::ConstantOp>(loc, b.getBoolAttr(true));
   }
 
-  if (isa<AtenAnyOp>(op)) {
+  if (isa<AtenAnyOp, AtenAnyDimOp>(op)) {
     return b.create<arith::ConstantOp>(loc, b.getBoolAttr(false));
   }
 
@@ -434,7 +434,7 @@ static Value createLinalgPayloadForReduceOp(OpBuilder &b, Location loc,
     Value result = payloadArgs[1];
     Value self = convertScalarToDtype(b, loc, elem, resultElementType);
     return b.create<arith::AndIOp>(loc, self, result);
-  } else if (isa<AtenAnyOp>(op)) {
+  } else if (isa<AtenAnyOp, AtenAnyDimOp>(op)) {
     Value elem = payloadArgs[0];
     Value result = payloadArgs[1];
     Value self = convertScalarToDtype(b, loc, elem, resultElementType);
@@ -532,6 +532,9 @@ private:
     if (auto allOp = dyn_cast<AtenAllDimOp>(op))
       return computeReductionOpInfoForDimVariantOp(allOp, operands, rewriter);
 
+    if (auto anyOp = dyn_cast<AtenAnyDimOp>(op))
+      return computeReductionOpInfoForDimVariantOp(anyOp, operands, rewriter);
+
     return rewriter.notifyMatchFailure(op, "not a supported reduce op");
   }
 
@@ -623,7 +626,7 @@ private:
         !isa<mlir::FloatType>(elemType))
       return rewriter.notifyMatchFailure(
           op, "only float types are valid for vector norm ops");
-    if (isa<AtenAllDimOp>(op) && isa<mlir::IntegerType>(elemType) &&
+    if (isa<AtenAllDimOp, AtenAnyDimOp>(op) && isa<mlir::IntegerType>(elemType) &&
         elemType.getIntOrFloatBitWidth() == 8)
       return rewriter.notifyMatchFailure(op, "uint8 is not supported");
 
@@ -716,6 +719,7 @@ void mlir::torch::torch_to_linalg::populateReductionPatternsAndLegality(
   target.addIllegalOp<AtenMaxOp>();
   target.addIllegalOp<AtenMinOp>();
   target.addIllegalOp<AtenAllDimOp>();
+  target.addIllegalOp<AtenAnyDimOp>();
   target.addIllegalOp<AtenNormScalarOp>();
   target.addIllegalOp<AtenLinalgVectorNormOp>();
   target.addIllegalOp<AtenFrobeniusNormDimOp>();
