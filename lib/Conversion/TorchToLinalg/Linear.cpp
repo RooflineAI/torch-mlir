@@ -1034,6 +1034,140 @@ LogicalResult handleUngroupedConvQuantized(ConversionPatternRewriter &rewriter, 
   return success();
 }
 
+LogicalResult handleDepthwiseConv(ConversionPatternRewriter &rewriter, Location loc,
+                  Value &weight, Value &paddedInput,
+                  Value &outputTensor, Value &inputZp, Value &weightZp, 
+                  size_t numSpatialDims,
+                  DenseIntElementsAttr stridesAttr, DenseIntElementsAttr dilationAttr,
+                  Type accumulatorDType, Type weightDTy, Type resultDTy,
+                  AtenConvolutionOp op, const TypeConverter *typeConverter,
+                  llvm::SmallVector<int64_t> weightShape){
+  Value conv;
+  // Collapse weight shape (C/G == 1)
+  SmallVector<ReassociationIndices, 4> collapsedDims = {{0, 1}, {2}, {3}};
+  SmallVector<int64_t> collapsedShape{weightShape[0] * weightShape[1],
+                                      weightShape[2], weightShape[3]};
+  for (unsigned i = 0; i < numSpatialDims; i++) {
+    collapsedDims.push_back({i + 2});
+    collapsedShape.push_back(weightShape[i + 2]);
+  }                                    
+  Type collapsedType = RankedTensorType::get(
+      makeShapeLLVMCompatible(collapsedShape), weightDTy);
+  Value collapsedWeight = rewriter.create<tensor::CollapseShapeOp>(
+      loc, collapsedType, weight, collapsedDims);
+  if (!inputZp) {
+    switch (numSpatialDims) {
+    case 1:
+      conv = rewriter
+                  .create<linalg::DepthwiseConv1DNcwCwOp>(
+                      loc, outputTensor.getType(),
+                      ValueRange{paddedInput, collapsedWeight}, outputTensor,
+                      stridesAttr, dilationAttr)
+                  .getResult(0);
+      break;
+    case 2:
+      conv = rewriter
+                  .create<linalg::DepthwiseConv2DNchwChwOp>(
+                      loc, outputTensor.getType(),
+                      ValueRange{paddedInput, collapsedWeight}, outputTensor,
+                      stridesAttr, dilationAttr)
+                  .getResult(0);
+      break;
+    default:
+      return rewriter.notifyMatchFailure(
+          op, "unimplemented: only 1D and 2D depthwise convolution "
+              "supported for special case of group convolution");
+    };
+  } else {
+    if (numSpatialDims != 2)
+      return rewriter.notifyMatchFailure(
+          op, "unimplemented: only 2D depthwise quantized convolution "
+              "supported for special case of group convolution");
+
+    // currently, the only named depthwise qconv op is nhwc_hwc
+    // input: nchw -> nhwc; weight (collapsed): chw -> hwc
+    // linalg conv result nhwc -> nchw
+    // inPerms = [0, 2, 3, 1]
+    // weightPerms = [1, 2, 0]
+    // resultPerms = [0, 3, 1, 2]
+    llvm::SmallVector<int64_t> inPerms, weightPerms, resultPerms;
+    inPerms.push_back(0);
+    resultPerms.append({0, static_cast<int64_t>(numSpatialDims + 1)});
+    for (size_t i = 0; i < numSpatialDims; ++i) {
+      inPerms.push_back(i + 2);
+      weightPerms.push_back(i + 1);
+      resultPerms.push_back(i + 1);
+    }
+    inPerms.push_back(1);
+    weightPerms.push_back(0);
+
+    paddedInput =
+        transposeValue(op.getLoc(), paddedInput, inPerms, rewriter);
+    collapsedWeight =
+        transposeValue(op.getLoc(), collapsedWeight, weightPerms, rewriter);
+    outputTensor =
+        transposeValue(op.getLoc(), outputTensor, inPerms, rewriter);
+
+    conv =
+        rewriter
+            .create<linalg::DepthwiseConv2DNhwcHwcQOp>(
+                loc, outputTensor.getType(),
+                ValueRange{paddedInput, collapsedWeight, inputZp, weightZp},
+                outputTensor, stridesAttr, dilationAttr)
+            .getResult(0);
+    // convert output nhwc -> nchw
+    conv = transposeValue(op.getLoc(), conv, resultPerms, rewriter);
+  }
+
+  Type newResultType = typeConverter->convertType(op.getType());
+  if (accumulatorDType != resultDTy) {
+    Type resultElementType =
+        cast<RankedTensorType>(newResultType).getElementType();
+    conv = torch_to_linalg::convertTensorToElementType(rewriter, loc, conv,
+                                                        resultElementType);
+  }
+  rewriter.replaceOpWithNewOp<tensor::CastOp>(op, newResultType, conv);
+  return success();
+}
+
+LogicalResult handleGroupedConvolution(ConversionPatternRewriter &rewriter, Location loc,
+                  Value &weightExpanded, Value &paddedInputExpanded,
+                  tensor::ExpandShapeOp &expandOutputTensor, Value &outputTensor, Value &inputZp, Value &weightZp, 
+                  DenseIntElementsAttr stridesAttr, DenseIntElementsAttr dilationAttr,
+                  Type accumulatorDType, Type resultDTy,
+                  AtenConvolutionOp op, const TypeConverter *typeConverter) {
+  Value conv;
+  // TODO: add 1D and 3D case
+  if (!inputZp) {
+    conv = rewriter
+                .create<linalg::Conv2DNgchwGfchwOp>(
+                    loc, expandOutputTensor.getResultType(),
+                    ValueRange{paddedInputExpanded, weightExpanded},
+                    expandOutputTensor.getResult(), stridesAttr, dilationAttr)
+                .getResult(0);
+  } else {
+    conv = rewriter
+                .create<linalg::Conv2DNgchwGfchwQOp>(
+                    loc, expandOutputTensor.getResultType(),
+                    ValueRange{paddedInputExpanded, weightExpanded, inputZp,
+                              weightZp},
+                    expandOutputTensor.getResult(), stridesAttr, dilationAttr)
+                .getResult(0);
+  }
+  conv = rewriter.create<tensor::CollapseShapeOp>(
+      loc, outputTensor.getType(), conv,
+      expandOutputTensor.getReassociationIndices());
+  Type newResultType = typeConverter->convertType(op.getType());
+  if (accumulatorDType != resultDTy) {
+    Type resultElementType =
+        cast<RankedTensorType>(newResultType).getElementType();
+    conv = torch_to_linalg::convertTensorToElementType(rewriter, loc, conv,
+                                                        resultElementType);
+  }
+  rewriter.replaceOpWithNewOp<tensor::CastOp>(op, newResultType, conv);
+  return success();
+}
+
 class ConvertAtenConvolutionOp : public OpConversionPattern<AtenConvolutionOp> {
 public:
   using OpConversionPattern::OpConversionPattern;
@@ -1298,90 +1432,19 @@ public:
     if (inShape[1] == convolutionAttributes->groups &&
         weightShape[0] == convolutionAttributes->groups &&
         weightShape[1] == 1) {
-      // Collapse weight shape (C/G == 1)
-      SmallVector<ReassociationIndices> collapsedDims = {{0, 1}};
-      SmallVector<int64_t> collapsedShape{weightShape[0] * weightShape[1]};
-      for (unsigned i = 0; i < numSpatialDims; i++) {
-        collapsedDims.push_back({i + 2});
-        collapsedShape.push_back(weightShape[i + 2]);
+      if (failed(handleDepthwiseConv(rewriter, loc,
+                  weight, paddedInput,
+                  outputTensor, inputZp, weightZp,
+                  numSpatialDims,
+                  stridesAttr, dilationAttr,
+                  accumulatorDType, weightDTy, resultDTy,
+                  op, getTypeConverter(),
+                  weightShape))){
+        return failure();
       }
-      Type collapsedType = RankedTensorType::get(
-          makeShapeLLVMCompatible(collapsedShape), weightDTy);
-      Value collapsedWeight = rewriter.create<tensor::CollapseShapeOp>(
-          loc, collapsedType, weight, collapsedDims);
-      if (!inputZp) {
-        switch (numSpatialDims) {
-        case 1:
-          conv = rewriter
-                     .create<linalg::DepthwiseConv1DNcwCwOp>(
-                         loc, outputTensor.getType(),
-                         ValueRange{paddedInput, collapsedWeight}, outputTensor,
-                         stridesAttr, dilationAttr)
-                     .getResult(0);
-          break;
-        case 2:
-          conv = rewriter
-                     .create<linalg::DepthwiseConv2DNchwChwOp>(
-                         loc, outputTensor.getType(),
-                         ValueRange{paddedInput, collapsedWeight}, outputTensor,
-                         stridesAttr, dilationAttr)
-                     .getResult(0);
-          break;
-        default:
-          return rewriter.notifyMatchFailure(
-              op, "unimplemented: only 1D and 2D depthwise convolution "
-                  "supported for special case of group convolution");
-        };
-      } else {
-        if (numSpatialDims != 2)
-          return rewriter.notifyMatchFailure(
-              op, "unimplemented: only 2D depthwise quantized convolution "
-                  "supported for special case of group convolution");
-
-        // currently, the only named depthwise qconv op is nhwc_hwc
-        // input: nchw -> nhwc; weight (collapsed): chw -> hwc
-        // linalg conv result nhwc -> nchw
-        // inPerms = [0, 2, 3, 1]
-        // weightPerms = [1, 2, 0]
-        // resultPerms = [0, 3, 1, 2]
-        llvm::SmallVector<int64_t> inPerms, weightPerms, resultPerms;
-        inPerms.push_back(0);
-        resultPerms.append({0, static_cast<int64_t>(numSpatialDims + 1)});
-        for (size_t i = 0; i < numSpatialDims; ++i) {
-          inPerms.push_back(i + 2);
-          weightPerms.push_back(i + 1);
-          resultPerms.push_back(i + 1);
-        }
-        inPerms.push_back(1);
-        weightPerms.push_back(0);
-
-        paddedInput =
-            transposeValue(op.getLoc(), paddedInput, inPerms, rewriter);
-        collapsedWeight =
-            transposeValue(op.getLoc(), collapsedWeight, weightPerms, rewriter);
-        outputTensor =
-            transposeValue(op.getLoc(), outputTensor, inPerms, rewriter);
-
-        conv =
-            rewriter
-                .create<linalg::DepthwiseConv2DNhwcHwcQOp>(
-                    loc, outputTensor.getType(),
-                    ValueRange{paddedInput, collapsedWeight, inputZp, weightZp},
-                    outputTensor, stridesAttr, dilationAttr)
-                .getResult(0);
-        // convert output nhwc -> nchw
-        conv = transposeValue(op.getLoc(), conv, resultPerms, rewriter);
+      else {
+        return success();
       }
-
-      Type newResultType = getTypeConverter()->convertType(op.getType());
-      if (accumulatorDType != resultDTy) {
-        Type resultElementType =
-            cast<RankedTensorType>(newResultType).getElementType();
-        conv = torch_to_linalg::convertTensorToElementType(rewriter, loc, conv,
-                                                           resultElementType);
-      }
-      rewriter.replaceOpWithNewOp<tensor::CastOp>(op, newResultType, conv);
-      return success();
     }
 
     if (numSpatialDims != 2)
@@ -1446,35 +1509,17 @@ public:
     Value weightExpanded = expandWeight(weight);
     auto expandOutputTensor = expandGroups(outputTensor, 1);
 
-    // TODO: add 1D and 3D case
-    if (!inputZp) {
-      conv = rewriter
-                 .create<linalg::Conv2DNgchwGfchwOp>(
-                     loc, expandOutputTensor.getResultType(),
-                     ValueRange{paddedInputExpanded, weightExpanded},
-                     expandOutputTensor.getResult(), stridesAttr, dilationAttr)
-                 .getResult(0);
-    } else {
-      conv = rewriter
-                 .create<linalg::Conv2DNgchwGfchwQOp>(
-                     loc, expandOutputTensor.getResultType(),
-                     ValueRange{paddedInputExpanded, weightExpanded, inputZp,
-                                weightZp},
-                     expandOutputTensor.getResult(), stridesAttr, dilationAttr)
-                 .getResult(0);
-    }
-    conv = rewriter.create<tensor::CollapseShapeOp>(
-        loc, outputTensor.getType(), conv,
-        expandOutputTensor.getReassociationIndices());
-    Type newResultType = getTypeConverter()->convertType(op.getType());
-    if (accumulatorDType != resultDTy) {
-      Type resultElementType =
-          cast<RankedTensorType>(newResultType).getElementType();
-      conv = torch_to_linalg::convertTensorToElementType(rewriter, loc, conv,
-                                                         resultElementType);
-    }
-    rewriter.replaceOpWithNewOp<tensor::CastOp>(op, newResultType, conv);
-    return success();
+    if (failed(handleGroupedConvolution(rewriter, loc,
+                    weightExpanded, paddedInputExpanded, expandOutputTensor,
+                    outputTensor, inputZp, weightZp, 
+                    stridesAttr, dilationAttr,
+                    accumulatorDType, resultDTy,
+                    op, getTypeConverter()))){
+        return failure();
+      }
+      else {
+        return success();
+      }    
   }
 };
 } // namespace
