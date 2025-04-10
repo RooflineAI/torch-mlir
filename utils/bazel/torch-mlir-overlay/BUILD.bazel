@@ -1,4 +1,4 @@
-# This file is licensed under the Apache License v2.0 with LLVM Exceptions.torch build
+# This file is licensed under the Apache License v2.0 with LLVM Exceptions.
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
@@ -280,7 +280,7 @@ gentbl_cc_library(
             [
                 "-gen-pass-decls",
                 "-DTORCH_MLIR_ENABLE_STABLEHLO",
-                "-DTORCH_MLIR_ENABLE_TOSA",
+                #"-DTORCH_MLIR_ENABLE_TOSA",
             ],
             "include/torch-mlir/Conversion/Passes.h.inc",
         ),
@@ -337,7 +337,7 @@ gentbl_cc_library(
             [
                 "-gen-pass-decls",
                 "-DTORCH_MLIR_ENABLE_STABLEHLO",
-                "-DTORCH_MLIR_ENABLE_TOSA",
+                #"-DTORCH_MLIR_ENABLE_TOSA",
             ],
             "include/torch-mlir/Dialect/TorchConversion/Transforms/Passes.h.inc",
         ),
@@ -546,7 +546,7 @@ cc_library(
     ],
     defines = [
         "TORCH_MLIR_ENABLE_STABLEHLO",
-        "TORCH_MLIR_ENABLE_TOSA",
+        #"TORCH_MLIR_ENABLE_TOSA",
     ],
     strip_include_prefix = "include",
     deps = [
@@ -571,7 +571,7 @@ cc_library(
     hdrs = glob(["include/torch-mlir/Dialect/TorchConversion/Transforms/*.h"]),
     defines = [
         "TORCH_MLIR_ENABLE_STABLEHLO",
-        "TORCH_MLIR_ENABLE_TOSA",
+        #"TORCH_MLIR_ENABLE_TOSA",
     ],
     strip_include_prefix = "include",
     deps = [
@@ -607,7 +607,7 @@ cc_library(
     ]),
     hdrs = glob(["include/torch-mlir/Conversion/TorchToTosa/*.h"]),
     defines = [
-        "TORCH_MLIR_ENABLE_TOSA",
+        #"TORCH_MLIR_ENABLE_TOSA",
     ],
     strip_include_prefix = "include",
     deps = [
@@ -896,7 +896,7 @@ cc_library(
     copts = [
         "-DTORCH_MLIR_ENABLE_REFBACKEND",
         "-DTORCH_MLIR_ENABLE_STABLEHLO",
-        "-DTORCH_MLIR_ENABLE_TOSA",
+        #"-DTORCH_MLIR_ENABLE_TOSA",
     ],
     strip_include_prefix = "include",
     deps = [
