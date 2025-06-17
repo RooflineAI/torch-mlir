@@ -319,6 +319,9 @@ def aten〇ceil〡shape(self: List[int]) -> List[int]:
 def aten〇trunc〡shape(self: List[int]) -> List[int]:
     return upstream_shape_functions.unary(self)
 
+def aten〇fix〡shape(self: List[int]) -> List[int]:
+    return upstream_shape_functions.unary(self)
+
 def aten〇log〡shape(self: List[int]) -> List[int]:
     return upstream_shape_functions.unary(self)
 
@@ -347,6 +350,9 @@ def aten〇relu6〡shape(self: List[int]) -> List[int]:
     return upstream_shape_functions.unary(self)
 
 def aten〇round〡shape(self: List[int]) -> List[int]:
+    return upstream_shape_functions.unary(self)
+
+def aten〇round〇decimals〡shape(self: List[int], decimals: int) -> List[int]:
     return upstream_shape_functions.unary(self)
 
 def aten〇glu〡shape(self: List[int], dim: int = -1) -> List[int]:
@@ -771,6 +777,9 @@ def aten〇one_hot〡shape(self: List[int], num_classes: int = -1) -> List[int]:
 
 def aten〇any〇dim〡shape(self: List[int], dim: int, keepdim: bool = False) -> List[int]:
     return upstream_shape_functions.argmax(self, dim, keepdim)
+
+def aten〇any〇dims〡shape(self: List[int], dim: Optional[List[int]] = None, keepdim: bool = False) -> List[int]:
+    return upstream_shape_functions.sum_mean_dim(self, dim, keepdim, None)
 
 def aten〇all〇dim〡shape(self: List[int], dim: int, keepdim: bool = False) -> List[int]:
     return upstream_shape_functions.argmax(self, dim, keepdim)
@@ -1348,10 +1357,12 @@ def aten〇_trilinear〡shape(i1: List[int], i2: List[int], i3: List[int], expan
 @check_shape_function([
     Invocation(TensorOfShape(3, 2, 8, 4), TensorOfShape(3, 2, 8, 4), TensorOfShape(3, 2, 8, 4)), # Same shape
     Invocation(TensorOfShape(3, 2, 16, 8), TensorOfShape(3, 2, 8, 8), TensorOfShape(3, 2, 8, 4)), # Different shape
+    Invocation(TensorOfShape(1, 2, 8, 4), TensorOfShape(3, 2, 8, 4), TensorOfShape(3, 2, 8, 4)), # Different batch size
 ])
 def aten〇scaled_dot_product_attention〡shape(query: List[int], key: List[int], value: List[int], attn_mask: Optional[List[int]] = None, dropout_p: float = 0., is_causal: bool = False, scale: Optional[float] = None, enable_gqa: bool = False) -> List[int]:
     outshape = query
     outshape[-1] = value[-1]
+    outshape[0] = upstream_shape_functions.broadcast_three([query[0]], [key[0]], [value[0]])[0]
     return outshape
 
 @check_shape_function([
@@ -1436,7 +1447,45 @@ def aten〇rot90〡shape(self: List[int], k: int = 1, dims: List[int] = (0, 1,))
     
     return self
 
+@check_shape_function([
+    Invocation(TensorOfShape(2, 3, 4)), # Basic case.
+    Invocation(TensorOfShape(2, 3, 4), dim = 1), # Test explicit dim.
+    Invocation(TensorOfShape(2, 3, 4), dim = -1), # Test explicit dim(negative).
+    Invocation(TensorOfShape(2, 3, 4), dim = -3), # Test explicit dim(negative).
+    Invocation(TensorOfShape(2, 3, 4), dim = 0), # Test explicit dim.
+    Invocation(TensorOfShape(2, 3, 4), dim = 2), # Test explicit maximum valid dim.
+    ErrorInvocation(TensorOfShape(2, 3, 4), dim = -4), # Test dim out of bound.
+    ErrorInvocation(TensorOfShape(2, 3, 4), dim = 3), # Test dim out of bound.
+])
+def aten〇count_nonzero〡shape(self: List[int], dim: Optional[int] = None) -> List[int]:
+    if dim is None: return []
+    assert not (dim < -len(self) or dim >= len(self))
+    return upstream_shape_functions.argmax(self, dim)
+
+@check_shape_function([
+    Invocation(TensorOfShape(2, 3, 4), dim = []), # Basic case.
+    Invocation(TensorOfShape(2, 3, 4), dim=[1]), # Test explicit dim.
+    Invocation(TensorOfShape(2, 3, 4), dim=[-1]), # Test explicit dim.
+    Invocation(TensorOfShape(2, 3, 4), dim=[0,1]), # Test explicit dim.
+    Invocation(TensorOfShape(2, 3, 4), dim=[-3]), # Test explicit dim(negative).
+    Invocation(TensorOfShape(2, 3, 4), dim=[2]), # Maximum valid dim.
+    ErrorInvocation(TensorOfShape(2, 3, 4), dim=[-4]), # Test dim out of bound.
+     ErrorInvocation(TensorOfShape(2, 3, 4), dim=[1,-4]), # Test dim out of bound.
+    ErrorInvocation(TensorOfShape(2, 3, 4), dim=[3]), # Test dim out of bound.
+])
+def aten〇count_nonzero〇dim_IntList〡shape(self: List[int], dim: List[int]) -> List[int]:
+    if dim is None: return []
+    for d in dim:
+        assert not (d < -len(self) or d >= len(self))
+    return upstream_shape_functions.sum_mean_dim(self, dim, keep_dim=False, dt=0)
+
 def aten〇_to_copy〡shape(self: List[int], dtype: Optional[int] = None, layout: Optional[int] = None, device: Optional[device] = None, pin_memory: Optional[bool] = None, non_blocking: bool = False, memory_format: Optional[int] = None) -> List[int]:
+    return upstream_shape_functions.unary(self)
+
+def aten〇logaddexp〡shape(self: List[int], other: List[int]) -> List[int]:
+    return upstream_shape_functions.unary(self)
+
+def aten〇logaddexp2〡shape(self: List[int], other: List[int]) -> List[int]:
     return upstream_shape_functions.unary(self)
 
 def aten〇masked_fill〇Scalar〡shape(self: List[int], mask: List[int], value: float) -> List[int]:
@@ -1501,6 +1550,9 @@ def aten〇cumsum〡shape(self: List[int], dim: int, dtype: Optional[int] = None
     return self
 
 def aten〇cumprod〡shape(self: List[int], dim: int, dtype: Optional[int] = None) -> List[int]:
+    return self
+
+def aten〇logcumsumexp〡shape(self: List[int], dim: int) -> List[int]:
     return self
 
 def aten〇rand_like〡shape(self: List[int], dtype: Optional[int] = None, layout: Optional[int] = None, device: Optional[device] = None, pin_memory: Optional[bool] = None, memory_format: Optional[int] = None) -> List[int]:
@@ -1936,6 +1988,14 @@ def aten〇_convolution〇deprecated〡shape(input: List[int], weight: List[int]
     return aten〇convolution〡shape(input, weight, bias, stride, padding, dilation, transposed, output_padding, groups)
 
 def aten〇flip〡shape(self: List[int], dims: List[int]) -> List[int]:
+    return self
+
+def aten〇fliplr〡shape(self: List[int]) -> List[int]:
+    assert len(self) >= 2
+    return self
+
+def aten〇flipud〡shape(self: List[int]) -> List[int]:
+    assert len(self) >= 1
     return self
 
 def aten〇convolution_backward〡shape(grad_output: List[int], input: List[int], weight: List[int], bias_sizes: Optional[List[int]], stride: List[int], padding: List[int], dilation: List[int], transposed: bool, output_padding: List[int], groups: int, output_mask: List[bool]) -> Tuple[List[int], List[int], List[int]]:
@@ -3074,6 +3134,11 @@ def aten〇trunc〡dtype(self_rank_dtype: Tuple[int, int]) -> int:
     self_rank, self_dtype = self_rank_dtype
     return self_dtype
 
+@check_dtype_function(_check_tensors_with_the_same_dtype(num_of_tensors=1))
+def aten〇fix〡dtype(self_rank_dtype: Tuple[int, int]) -> int:
+    self_rank, self_dtype = self_rank_dtype
+    return self_dtype
+
 @check_dtype_function(_check_tensors_with_the_same_dtype(num_of_tensors=1, max=0))
 def aten〇clamp_max〡dtype(self_rank_dtype: Tuple[int, int], max: Union[int, float, complex]) -> int:
     self_rank, self_dtype = self_rank_dtype
@@ -3183,6 +3248,11 @@ def aten〇cumsum〡dtype(self_rank_dtype: Tuple[int, int], dim: int, dtype: Opt
         return torch.int64
     return self_dtype
 
+@check_dtype_function(
+    _check_tensors_with_the_same_dtype(num_of_tensors=1, dim=0))
+def aten〇logcumsumexp〡dtype(self_rank_dtype: Tuple[int, int], dim: int) -> int:
+    self_rank, self_dtype = self_rank_dtype
+    return self_dtype
 
 @check_dtype_function(
     _check_tensors_with_the_same_dtype(num_of_tensors=1, dim=0) +
@@ -3248,6 +3318,16 @@ def aten〇unflatten〇int〡dtype(self_rank_dtype: Tuple[int, int], dim: int, s
 
 @check_dtype_function(_check_tensors_with_the_same_dtype(num_of_tensors=1, dims=[0]))
 def aten〇flip〡dtype(self_rank_dtype: Tuple[int, int], dims: List[int]) -> int:
+    self_rank, self_dtype = self_rank_dtype
+    return self_dtype
+
+@check_dtype_function([Invocation(TensorOfShape(2, 3, dtype=torch.float32, device="cpu"))])
+def aten〇fliplr〡dtype(self_rank_dtype: Tuple[int, int]) -> int:
+    self_rank, self_dtype = self_rank_dtype
+    return self_dtype
+
+@check_dtype_function([Invocation(TensorOfShape(2, 3, dtype=torch.float32, device="cpu"))])
+def aten〇flipud〡dtype(self_rank_dtype: Tuple[int, int]) -> int:
     self_rank, self_dtype = self_rank_dtype
     return self_dtype
 
@@ -3408,6 +3488,19 @@ def aten〇kthvalue〡dtype(self_rank_dtype: Tuple[int, int], k: int, dim: int =
     _check_two_tensor_op(dim=0, input_dtype=torch.float64))
 def aten〇_log_softmax_backward_data〡dtype(grad_output_rank_dtype: Tuple[int, int], output_rank_dtype: Tuple[int, int], dim: int, input_dtype: int) -> int:
     return input_dtype
+
+@check_dtype_function(_check_tensors_with_the_same_dtype(num_of_tensors=2, error_types={torch.bool}))
+def aten〇logaddexp〡dtype(self_rank_dtype: Tuple[int, int], other_rank_dtype: Tuple[int, int]) -> int:
+    self_rank, self_dtype = self_rank_dtype
+    other_rank, other_dtype = other_rank_dtype
+    assert self_dtype != torch.bool and other_dtype != torch.bool
+    return self_dtype
+
+@check_dtype_function(_check_tensors_with_the_same_dtype(num_of_tensors=2, error_types={torch.bool, torch.complex32, torch.complex64, torch.complex128}))
+def aten〇logaddexp2〡dtype(self_rank_dtype: Tuple[int, int], other_rank_dtype: Tuple[int, int]) -> int:
+    self_rank, self_dtype = self_rank_dtype
+    assert self_dtype not in [torch.bool, torch.complex32, torch.complex64, torch.complex128]
+    return self_dtype
 
 @check_dtype_function(_check_tensors_with_the_same_dtype(None, [(3,)], None, None, TensorOfShape(1, dtype=torch.bool), 0))
 def aten〇masked_fill〇Scalar〡dtype(self_rank_dtype: Tuple[int, int], mask_rank_dtype: Tuple[int, int], value: Union[int, float, complex]) -> int:
@@ -3611,6 +3704,11 @@ def aten〇roll〡dtype(self_rank_dtype: Tuple[int, int], shifts: List[int], dim
 
 @check_dtype_function(_check_tensors_with_the_same_dtype(num_of_tensors=1))
 def aten〇round〡dtype(self_rank_dtype: Tuple[int, int]) -> int:
+    self_rank, self_dtype = self_rank_dtype
+    return self_dtype
+
+@check_dtype_function(_check_tensors_with_the_same_dtype(num_of_tensors=1, decimals=0))
+def aten〇round〇decimals〡dtype(self_rank_dtype: Tuple[int, int], decimals: int) -> int:
     self_rank, self_dtype = self_rank_dtype
     return self_dtype
 
@@ -4980,7 +5078,7 @@ def aten〇nan_to_num〡dtype(self_rank_dtype: Tuple[int, int], nan: Optional[fl
 @check_dtype_function(
     [Invocation(TensorOfShape(2, 3, dtype=torch.float32), TensorOfShape(2, dtype=torch.int64),
                 TensorOfShape(3, dtype=torch.float32), reduction=0, ignore_index=0),
-     ErrorInvocation(TensorOfShape(2, 3, dtype=torch.float32), TensorOfShape(2, dtype=torch.int32), # target must be int64
+     Invocation(TensorOfShape(2, 3, dtype=torch.float32), TensorOfShape(2, dtype=torch.int32), # target must be int64
                      TensorOfShape(3, dtype=torch.float32), reduction=0, ignore_index=0),
      ErrorInvocation(TensorOfShape(2, 3, dtype=torch.float32), TensorOfShape(2, dtype=torch.float64), # target must be int64
                      TensorOfShape(3, dtype=torch.float32), reduction=0, ignore_index=0),
@@ -4993,7 +5091,7 @@ def aten〇nan_to_num〡dtype(self_rank_dtype: Tuple[int, int], nan: Optional[fl
 def aten〇nll_loss_forward〡dtype(self_rank_dtype: Tuple[int, int], target_rank_dtype: Tuple[int, int], weight_rank_dtype: Optional[Tuple[int, int]], reduction: int, ignore_index: int) -> Tuple[int, int]:
     self_rank, self_dtype = self_rank_dtype
     target_rank, target_dtype = target_rank_dtype
-    assert target_dtype == torch.int64
+    assert target_dtype == torch.int64 or target_dtype == torch.int32
     return self_dtype, self_dtype
 
 @check_dtype_function(
@@ -5181,6 +5279,13 @@ def aten〇any〇dim〡dtype(self_rank_dtype: Tuple[int, int], dim: int, keepdim
         return self_dtype
     return torch.bool
 
+@check_dtype_function(_check_tensors_with_the_same_dtype(num_of_tensors=1))
+def aten〇any〇dims〡dtype(self_rank_dtype: Tuple[int, int], dim: Optional[List[int]] = None, keepdim: bool = False) -> int:
+    self_rank, self_dtype = self_rank_dtype
+    if self_dtype == torch.uint8:
+        return self_dtype
+    return torch.bool
+
 @check_dtype_function(_check_tensors_with_the_same_dtype(num_of_tensors=1, dim=0))
 def aten〇all〇dim〡dtype(self_rank_dtype: Tuple[int, int], dim: int, keepdim: bool = False) -> int:
     self_rank, self_dtype = self_rank_dtype
@@ -5291,6 +5396,8 @@ def aten〇linalg_vector_norm〡dtype(self_rank_dtype: Tuple[int, int], ord: Uni
             return aten〇std〡dtype((self_rank, dtype))
         assert not is_complex_dtype(dtype)
         return dtype
+    if self_dtype in [torch.float16, torch.bfloat16]:
+        return torch.float32
     return aten〇std〡dtype(self_rank_dtype)
 
 @check_dtype_function(
@@ -5314,6 +5421,8 @@ def aten〇linalg_norm〡dtype(self_rank_dtype: Tuple[int, int], ord: Optional[U
             return aten〇std〡dtype((self_rank, dtype))
         assert not is_complex_dtype(dtype)
         return dtype
+    if self_dtype in [torch.float16, torch.bfloat16]:
+        return torch.float32
     return aten〇std〡dtype(self_rank_dtype)
 
 def aten〇binary_cross_entropy_with_logits〡dtype(self_rank_dtype: Tuple[int, int], target_rank_dtype: Tuple[int, int], weight_rank_dtype: Optional[Tuple[int, int]] = None, pos_weight_rank_dtype: Optional[Tuple[int, int]] = None, reduction: int = 1) -> int:
@@ -5347,6 +5456,8 @@ def aten〇norm〇Scalar〡dtype(self_rank_dtype: Tuple[int, int], p: Union[int,
     # Should possibly be added to aten〇std〡dtype.
     if self_dtype == torch.complex32:
         return torch.half
+    if self_dtype in [torch.float16, torch.bfloat16]:
+        return torch.float32
     return aten〇std〡dtype(self_rank_dtype)
 
 @check_dtype_function([Invocation(0.0),
@@ -5513,6 +5624,9 @@ def aten〇new_empty_strided〡dtype(self_rank_dtype: Tuple[int, int], size: Lis
 def aten〇diag_embed〡dtype(self_rank_dtype: Tuple[int, int], offset: int = 0, dim1: int = -2, dim2: int = -1) -> int:
     self_rank, self_dtype = self_rank_dtype
     return self_dtype
+
+def aten〇count_nonzero〡dtype(self_rank_dtype: Tuple[int, int], dim: Optional[int] = None) -> int:
+    return torch.int64
 
 def aten〇rot90〡dtype(self_rank_dtype: Tuple[int, int], k: int = 1, dims: List[int] = (0, 1,)) -> int:
     self_rank, self_dtype = self_rank_dtype
